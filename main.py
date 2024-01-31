@@ -1,197 +1,63 @@
-import torch
-import torch.nn
-from torch.autograd import Variable
-import torch.nn as nn
+
+
+
+import pandas as pd
+import yfinance as yf
+from sklearn.preprocessing import MinMaxScaler
 import numpy as np
-
+from keras.models import Sequential
+from keras.layers import LSTM, Dropout, Dense
 import matplotlib.pyplot as plt
-from datetime import datetime
 
+# 데이터 다운로드
+start_date = '2006-01-01'
+end_date = '2018-01-01'
+df = yf.download('035720.KS', start=start_date, end=end_date)
 
+# 데이터 전처리
+sc = MinMaxScaler(feature_range=(0, 1))
+scaled_data = sc.fit_transform(df.iloc[:,1:2].values)
 
+# 훈련 데이터 준비
+X_train = []
+y_train = []
+for i in range(60, len(scaled_data)):
+    X_train.append(scaled_data[i - 60:i, 0])
+    y_train.append(scaled_data[i, 0])
+X_train, y_train = np.array(X_train), np.array(y_train)
+X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))
 
-class GRU(nn.Module) :
-    def __init__(self, num_classes, input_size, hidden_size, num_layers, seq_length) :
-        super(GRU, self).__init__()
-        self.num_classes = num_classes
-        self.num_layers = num_layers
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.seq_length = seq_length
-        
-        self.gru = nn.GRU(input_size=input_size,hidden_size=hidden_size,
-                         num_layers=num_layers,batch_first=True)
-        self.fc_1 = nn.Linear(hidden_size, 128)
-        self.fc = nn.Linear(128, num_classes)
-        self.relu = nn.ReLU()
-        
-    def forward(self, x) :
-        h_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))
-        output, (hn) = self.gru(x, (h_0)) 
-        hn = hn.view(-1, self.hidden_size)
-        out = self.relu(hn)
-        out = self.fc_1(out)
-        out = self.relu(out)
-        out = self.fc(out)
-        return out
-    
+# LSTM 모델 구축
 
+from keras.models import Sequential
+from keras.layers import LSTM, Dropout, Dense
 
+regressor = Sequential()
+# First LSTM layer with Dropout regularisation
+regressor.add(LSTM(units=100, return_sequences=True, input_shape=(X_train.shape[1],1)))
+regressor.add(Dropout(0.3))
 
-    
-def load_data(name, start_date, end_date):
-    import yfinance as yf
-    if start_date == '' and end_date == '':
-        return yf.download(name) # 005930 : 삼성전자 주가
-    else :
-        return yf.download(name,
-                     start=start_date,
-                     end=end_date) # 005930 : 삼성전자 주가
-    
+regressor.add(LSTM(units=80, return_sequences=True))
+regressor.add(Dropout(0.1))
 
-    
+regressor.add(LSTM(units=50, return_sequences=True))
+regressor.add(Dropout(0.2))
 
+regressor.add(LSTM(units=30))
+regressor.add(Dropout(0.3))
 
-def preprocess_data(df):
-    df.head()
-    fig = df['Close'].plot()
+regressor.add(Dense(units=1))
 
-    X = df.drop('Close', axis=1) # X, y 분리
-    y = df[['Close']]
+regressor.compile(optimizer='adam',loss='mean_squared_error')
 
-    from sklearn.preprocessing import StandardScaler, MinMaxScaler
+# 모델 학습
+regressor.fit(X_train, y_train, epochs=50, batch_size=32)
 
-    ms = MinMaxScaler() # 0 ~ 1
-    ss = StandardScaler() # 평균 0, 분산 1
+# 마지막 60일 데이터로 다음날 주가 예측
+last_60_days = scaled_data[-60:]
+last_60_days = np.reshape(last_60_days, (1, last_60_days.shape[0], 1))
+predicted_stock_price = regressor.predict(last_60_days)
+predicted_stock_price = sc.inverse_transform(predicted_stock_price)
 
-    X_ss = ss.fit_transform(X)
-    y_ms = ms.fit_transform(y)
-
-    X_train = X_ss[:79, :]
-    X_test = X_ss[79:, :]
-
-    y_train = y_ms[:79, :]
-    y_test = y_ms[79:, :]
-
-    print('Training Shape :', X_train.shape, y_train.shape)
-    print('Testing Shape :', X_test.shape, y_test.shape)
-
-
-    # 데이터셋 형태 및 크기 조정
-    X_train_tensors = torch.Tensor(X_train)
-    X_test_tensors = torch.Tensor(X_test)
-
-    y_train_tensors = torch.Tensor(y_train)
-    y_test_tensors = torch.Tensor(y_test)
-
-    X_train_tensors_f = torch.reshape(X_train_tensors, 
-                                    (X_train_tensors.shape[0], 1, X_train_tensors.shape[1]))
-
-    X_test_tensors_f = torch.reshape(X_test_tensors,
-                                    (X_test_tensors.shape[0], 1, X_test_tensors.shape[1]))
-
-    print('Training Shape :', X_train.shape, y_train.shape)
-    print('Testing Shape :', X_test.shape, y_test.shape)
-
-    return X_train_tensors_f, X_test_tensors_f, y_train_tensors, ss, ms, X, y
-
-
-
-
-def train_model(X_train_tensors_f, y_train_tensors, ss, ms, X, y):
-    num_epochs = 1000
-    learning_rate = 0.0001
-
-    input_size=5
-    hidden_size=2
-    num_layers=1
-
-    num_classes=1
-    model=GRU(num_classes,input_size,hidden_size,num_layers,X_train_tensors_f.shape[1])
-
-    criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-
-    for epoch in range(num_epochs) :
-        outputs = model.forward(X_train_tensors_f)
-        optimizer.zero_grad()
-        loss = criterion(outputs, y_train_tensors)
-        loss.backward()
-        
-        optimizer.step()
-        if epoch % 100 == 0 :
-            print(f'Epoch : {epoch}, loss : {loss.item():1.5f}')
-
-    df_x_ss = ss.transform(X)
-    df_y_ms = ms.transform(y)
-
-    df_x_ss = torch.Tensor(df_x_ss)
-    df_y_ms = torch.Tensor(df_y_ms)
-    df_x_ss = torch.reshape(df_x_ss, (df_x_ss.shape[0], 1, df_x_ss.shape[1]))
-
-    return model, df_x_ss, df_y_ms, ms
-
-
-
-
-
-def predict(model, df_x_ss, df_y_ms, ms):
-    train_predict = model(df_x_ss)
-
-    plt.style.use('seaborn-whitegrid')
-
-    predicted = train_predict.data.numpy()
-
-    label_y = df_y_ms.data.numpy()
-
-    predicted = ms.inverse_transform(predicted)
-    label_y = ms.inverse_transform(label_y)
-
-    return predicted
-
-
-
-
-
-def draw_graph(predicted, df):
-    
-    plt.figure(figsize=(10, 6))
-    plt.axvline(x=datetime(2023,10,1), c='r', linestyle='--')
-
-    df['pred'] = predicted
-    plt.plot(df['Close'], label='Actual Data')
-    plt.plot(df['pred'], label='Predicted Data')
-
-    plt.title('Time-series Prediction')
-    plt.legend()
-    plt.show()
-
-
-
-
-
-def main():
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-    cuda = True if torch.cuda.is_available() else False
-    Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-
-    torch.manual_seed(125)
-
-    if torch.cuda.is_available() :
-        torch.cuda.manual_seed_all(125)
-    df = load_data("005930.KS", "2023-10-01", "2023-10-31")
-    # df = load_data("005930.KS", '', '')
-
-    X_train_tensors_f, X_test_tensors_f, y_train_tensors, ss, ms, X, y = preprocess_data(df)
-    model, df_x_ss, df_y_ms, ms = train_model(X_train_tensors_f, y_train_tensors, ss, ms, X, y)
-
-    predicted = predict(model, df_x_ss, df_y_ms, ms)
-    draw_graph(predicted, df)
-
-
-
-
-if __name__ == '__main__':
-    main()
+# 예측된 주가 출력
+print("다음날 예측 주가: ", predicted_stock_price[0,0])
