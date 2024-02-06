@@ -1,6 +1,3 @@
-
-
-
 import pandas as pd
 import yfinance as yf
 from sklearn.preprocessing import MinMaxScaler
@@ -12,7 +9,7 @@ import matplotlib.pyplot as plt
 # 데이터 다운로드
 start_date = '2006-01-01'
 end_date = '2018-01-01'
-df = yf.download('035720.KS', start=start_date, end=end_date)
+df = yf.download('329180.KS')
 
 # 데이터 전처리
 sc = MinMaxScaler(feature_range=(0, 1))
