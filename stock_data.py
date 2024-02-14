@@ -1,7 +1,7 @@
 import FinanceDataReader as fdr
 import pandas as pd
 
-
+print('ttt')
 symbol_list = ['KRX', 'KOSPI', 'KOSDAQ', 'KONEX']
 
 for symbol in symbol_list:

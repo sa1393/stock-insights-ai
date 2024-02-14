@@ -6,6 +6,8 @@ from keras.models import Sequential
 from keras.layers import LSTM, Dropout, Dense
 import matplotlib.pyplot as plt
 
+print('test')
+
 # 데이터 다운로드
 start_date = '2006-01-01'
 end_date = '2018-01-01'
